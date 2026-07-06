@@ -94,36 +94,32 @@ else :
     )
 
     detector = None
-    if st.button("Process"):
-        if kp_choice == "ORB" :
-            detector = cv2.ORB_create()
-            matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-
-        elif kp_choice == "SIFT":
-            FLANN_INDEX_KDTREE = 1
-            index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-            search_params = dict(checks=50)
+    if st.button("Process"):        
+        if kp_choice == "SuperPoint":
+            # Superpoint based proces
+            from feature_models.superpoint import create
+            matching = create()
             
-            detector = cv2.SIFT_create()
-            matcher = cv2.FlannBasedMatcher(index_params, search_params)
+            polygon_points = scale_polygons(polygon_points, scale)
+            result = process_superpoint_slam(W=W,H=H,K=K,image_paths=image_paths,polygon_points=polygon_points,matching=matching,)
 
-        elif kp_choice == "SuperPoint":
-            ## TODO: add superpoint
-            detector = None
-            matcher = None
-        
-        if detector is None:
-            st.write("Coming in future update")
+        else :
+            if kp_choice == "ORB" :
+                from feature_models.orb import create
 
-        else:
+            elif kp_choice == "SIFT":
+                from feature_models.sift import create
+            
+            detector, matcher = create()
+
             # Drawn images results, Mean IOU, median, min, max
             polygon_points = scale_polygons(polygon_points, scale)
             result = process_kp_slam(W,H,K,image_paths, polygon_points, kp_choice, detector, matcher)
 
-            st.metric("Mean IoU", f"{result['mean_iou']:.3f}")
-            st.metric("Median IoU", f"{result['median_iou']:.3f}")
-            st.metric("Min IoU", f"{result['min_iou']:.3f}")
-            st.metric("Max IoU", f"{result['max_iou']:.3f}")
+        st.metric("Mean IoU", f"{result['mean_iou']:.3f}")
+        st.metric("Median IoU", f"{result['median_iou']:.3f}")
+        st.metric("Min IoU", f"{result['min_iou']:.3f}")
+        st.metric("Max IoU", f"{result['max_iou']:.3f}")
 
-            for img in result["images"]:
-                st.image(img)
+        for img in result["images"]:
+            st.image(img)

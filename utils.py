@@ -5,25 +5,23 @@ import re
 
 from shapely.geometry import Polygon
 from pathlib import Path
+from feature_models.orb import detect_and_compute_orb
+from feature_models.sift import detect_and_compute_sift
+from feature_models.superpoint import detect_and_compute_superpoint, superpoint_match
 
-def detect_and_compute(img, detector, kp) :
-    if kp == "ORB":
-        kps, des = detect_and_compute_orb(img, detector)
-    elif kp == "SIFT":
-        kps, des = detect_and_compute_sift(img, detector)
-    return kps, des
+def detect_and_compute(img, detector, kp_choice):
 
-def detect_and_compute_orb(frame, orb):
-    """Detect orb features"""
-    feats = cv2.goodFeaturesToTrack(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), maxCorners=1000, qualityLevel=0.001, minDistance=25)
-    feats = np.array([cv2.KeyPoint(x=int(f[0][0]), y=int(f[0][1]), size=10) for f in feats])
-    kps, des = orb.compute(frame, feats)
-    return kps, des
+    if kp_choice == "ORB":
+        return detect_and_compute_orb(img, detector)
 
-def detect_and_compute_sift(frame, sift):
-    """Detect sift features"""
-    kps, des = sift.detectAndCompute(frame, None)
-    return kps, des
+    elif kp_choice == "SIFT":
+        return detect_and_compute_sift(img, detector)
+
+    elif kp_choice == "SuperPoint":
+        return detect_and_compute_superpoint(img, detector)
+
+    else:
+        raise ValueError(f"Unknown keypoint: {kp_choice}")
 
 def match_features(des1, des2, matcher):
     """Match features across consecutive frames"""
@@ -224,6 +222,124 @@ def process_kp_slam(W,H,K,image_paths, polygon_points, kp_choice, detector, matc
         des1 = des2
 
     IOU_array = np.array(IOU_list)
+    return {
+        "images": result_images,
+        "pred_polygon_points": pred_polygon_points,
+        "iou": IOU_array,
+        "mean_iou": float(IOU_array.mean()),
+        "median_iou": float(np.median(IOU_array)),
+        "min_iou": float(IOU_array.min()),
+        "max_iou": float(IOU_array.max()),
+    }
+
+def process_superpoint_slam(
+    W,
+    H,
+    K,
+    image_paths,
+    polygon_points,
+    matching,
+):
+
+    IOU_list = []
+    pred_polygon_points = []
+    result_images = []
+
+    pred_polygon = None
+
+    for idx, img_path in enumerate(image_paths):
+
+        if idx == 1:
+            continue
+
+        img = cv2.imread(img_path)
+        img = cv2.resize(img, (W, H))
+
+        gt_polygon = np.array(
+            polygon_points[idx][0],
+            dtype=np.float32
+        )
+
+        if idx == 0:
+
+            pred_polygon = gt_polygon.copy()
+
+            img_prev = img.copy()
+
+            pred_polygon_points.append(pred_polygon)
+
+            continue
+
+        ###################################################
+        # SuperPoint + SuperGlue
+        ###################################################
+
+        pts1, pts2 = superpoint_match(
+            img_prev,
+            img,
+            matching
+        )
+
+        ###################################################
+
+        M = transform_camera_pose(
+            pts1,
+            pts2
+        )
+
+        pred_polygon = cv2.perspectiveTransform(
+            pred_polygon.reshape(-1,1,2),
+            M
+        ).reshape(-1,2)
+
+        pred_polygon[:,0] = np.clip(pred_polygon[:,0],0,W-1)
+        pred_polygon[:,1] = np.clip(pred_polygon[:,1],0,H-1)
+
+        pred_polygon_points.append(pred_polygon)
+
+        iou = polygon_iou(
+            pred_polygon,
+            gt_polygon
+        )
+
+        IOU_list.append(iou)
+
+        vis = img.copy()
+
+        cv2.polylines(
+            vis,
+            [gt_polygon.astype(np.int32)],
+            True,
+            (0,255,0),
+            5
+        )
+
+        cv2.polylines(
+            vis,
+            [pred_polygon.astype(np.int32)],
+            True,
+            (0,0,255),
+            5
+        )
+
+        cv2.putText(
+            vis,
+            f"IOU={iou:.3f}",
+            (50,80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            2,
+            (255,0,0),
+            3
+        )
+
+        result_images.append(
+            cv2.cvtColor(vis, cv2.COLOR_BGR2RGB)
+        )
+
+        img_prev = img.copy()
+
+    IOU_array = np.array(IOU_list)
+
     return {
         "images": result_images,
         "pred_polygon_points": pred_polygon_points,
