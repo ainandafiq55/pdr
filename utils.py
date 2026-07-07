@@ -1,7 +1,11 @@
+
+import folium
+import math
 import cv2
 import numpy as np
 import json
 import re
+import pyrealsense2 as rs
 
 from shapely.geometry import Polygon
 from pathlib import Path
@@ -349,3 +353,82 @@ def process_superpoint_slam(
         "min_iou": float(IOU_array.min()),
         "max_iou": float(IOU_array.max()),
     }
+
+def process_bag2pose(bag_path, start_lat, start_lon, start_azimuth):
+    config = rs.config()
+    config.enable_device_from_file(bag_path, repeat_playback=False)
+
+    pipeline = rs.pipeline()
+    profile = pipeline.start(config)
+
+    device = profile.get_device()
+    playback = device.as_playback()
+    playback.set_real_time(False)
+
+    poses = []
+
+    try:        
+        print("Reading bag...")
+        while True:
+            frames = pipeline.wait_for_frames()
+
+            pose = frames.get_pose_frame()
+
+            if pose:
+                data = pose.get_pose_data()
+
+                poses.append([
+                    data.translation.x,
+                    data.translation.y,
+                    data.translation.z,
+                    data.rotation.w,
+                    data.rotation.x,
+                    data.rotation.y,
+                    data.rotation.z
+                ])
+
+    except RuntimeError:
+        pass
+
+    pipeline.stop()
+    print("Finished reading")
+
+    ## Convert to route
+    lat = start_lat
+    lon = start_lon
+
+    lat_per_meter = 1 / 111320
+    lon_per_meter = 1 / (111320 * math.cos(math.radians(start_lat)))
+
+    theta = start_azimuth
+
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+
+    lat_per_meter = 1 / 111320
+    lon_per_meter = 1 / (111320 * math.cos(math.radians(start_lat)))
+
+    route = []
+    for p in poses:
+
+        x = p[0]
+        z = p[2]
+
+        # Rotate local coordinate
+        forward = -z
+        right = x
+
+        east = forward * sin_t + right * cos_t
+        north = forward * cos_t - right * sin_t
+
+        lat = start_lat + north * lat_per_meter
+        lon = start_lon + east * lon_per_meter
+
+        route.append([lat, lon])
+    # Draw folium
+    m = folium.Map(location=route[0],zoom_start=18, tiles='https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg', attr='GSI')
+    folium.PolyLine(route,color="blue",weight=4).add_to(m)
+    folium.Marker(route[0],tooltip="Start",icon=folium.Icon(color="green")).add_to(m)
+    folium.Marker(route[-1],tooltip="Finish",icon=folium.Icon(color="red")).add_to(m)
+    print("Sending back to the UI")
+    return m, route
