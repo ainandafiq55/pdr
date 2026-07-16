@@ -4,24 +4,42 @@ import cv2
 import inspect
 
 from utils import *
-st.title("Keypoint SLAM Analytics")
-st.write("This page is for analyze and observe the keypoints performance")
+st.title("Keypoints Competition")
+st.write("This page is to select which keypoint is perform best")
 
-st.header("Annotation selection") 
-annotation = st.file_uploader(
-    "Choose annotation file",
+st.header("Reference image selection") 
+
+start_image_name = st.text_input(
+    "Type the name of the first starting frame that has been annotated",
+    r"frame_0_jpg.rf.d61fa0abf446845c21e89849ebf46358.jpg"
+)
+end_image_name = st.text_input(
+    "Type the name of the last ending frame that has been annotated",
+    r"frame_369_jpg.rf.28d5a1955d52f033f8b0599870152f73.jpg"
+)
+
+reference_image_annotation = st.file_uploader(
+    "Choose the bbox annotation for the reference images",
     type=["json"]
 )
-images_parent_path = st.text_input(
-    "Test images path",
-    r"D:/Code/Python/doctor code scratch/PyOrbSlam-main/bbox"
+
+st.header("Frames selection") 
+st.write("Please put image frames folder during walking after the starting image until the end of walking")
+image_frames_folder = st.text_input(
+    "Image frames path",
+    r"D:/Media/doctor related/pdr record frames/lab-toilet_back-camera-face-front/frame_2026-04-13-14-42-44-371"
+)
+end_frame_name = st.text_input(
+    "Type the name of the last ending frame (most likely same with the annotated ending frame)",
+    r"frame_369.jpg"
 )
 
-if (annotation and images_parent_path) is None:
+if all(x is not None for x in (start_image_name, end_image_name, reference_image_annotation, image_frames_folder)):
     st.write("Please upload the json file first!")
 else :
-    # Get test images path
-    image_paths, polygon_points = load_coco_images_and_segmentations(annotation,images_parent_path)
+    # Get test polygon points for start and end images
+    start_image_polygon_points = get_polygon_points(start_image_name,reference_image_annotation)
+    end_image_polygon_points = get_polygon_points(end_image_name,reference_image_annotation)
 
     # Camera instrinsic features
     st.header("Camera Instrinsic Value Settings") 
@@ -120,9 +138,6 @@ else :
         st.metric("Median IoU", f"{result['median_iou']:.3f}")
         st.metric("Min IoU", f"{result['min_iou']:.3f}")
         st.metric("Max IoU", f"{result['max_iou']:.3f}")
-        st.metric("Lowest Blur", f"{result['lowest_blur']:.3f}")
-        st.metric("Average Time", f"{result['average_time']:.3f}")
-        st.metric("Median Time", f"{result['median_time']:.3f}")
 
         for img in result["images"]:
             st.image(img)
